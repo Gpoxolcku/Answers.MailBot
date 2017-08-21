@@ -20,7 +20,9 @@ import (
 // 	AddTaskSyncTimed(f workers.Func, timeout time.Duration) (interface{}, error)
 // }
 
-var pool *workers.Pool = workers.NewPool(5)
+// var pool *workers.Pool = workers.NewPool(5)
+
+var pool *workers.Pool
 
 func contains(s []string, e string) (bool, int) {
 	for i, a := range s {
@@ -286,7 +288,7 @@ func Start(concurency int, addr string) {
 	router.HandleFunc("/topic", editTopic).Methods("POST")
 	// router.HandleFunc("/spec", editSpec).Methods("POST")
 	router.HandleFunc("/run", runParser).Methods("GET")
-	// pool := workers.NewPool(concurency)
+	pool = workers.NewPool(concurency)
 	pool.Run()
 
 	log.Fatal(http.ListenAndServe(addr, router))
