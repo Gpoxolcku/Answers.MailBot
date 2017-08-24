@@ -115,34 +115,38 @@ func runParser(wr http.ResponseWriter, req *http.Request) { //сделать с�
 
 	log.Printf("Message /run/ received\n")
 
-	handler := func() int {
+	handler := func() workers.Result {
 
-		response, err := http.Get("http://lk.fcsm.ru/Home/Outgoing/backoff%40qbfin.ru")
+		spec := strings.Join(reference['#'], "+")
+		response, err := http.Get("https://stackoverflow.com/search?q=" + spec)
 		if err != nil {
 			log.Println(err)
-			return http.StatusBadRequest
+
+			return workers.Result{"", http.StatusInternalServerError}
 		}
 
 		defer response.Body.Close()
 		doc, err := goquery.NewDocumentFromReader(io.Reader(response.Body))
 		if err != nil {
 			log.Println(err)
-			return http.StatusBadGateway
+			return workers.Result{"", http.StatusBadGateway}
 		}
 
+		toWrite := ""
 		doc.Find(".postcell").Find(".post-text").Each(func(i int, s *goquery.Selection) { //тельце вопросика
-			println(s.Text())
+			// println(s.Text())
+			toWrite += fmt.Sprintln(s.Text())
 		})
 
 		doc.Find(".postcell").Find(".post-taglist").Each(func(i int, s *goquery.Selection) { //тэги вопросика
-			println(s.Text())
+			toWrite += fmt.Sprintln(s.Text())
 		})
 
 		doc.Find(".owner").Find(".user-info").Find(".user-details").Each(func(i int, s *goquery.Selection) { //ник и репутация спрашивающего
 			nameOwner := s.Find("a")                       //ник
 			reputationOwner := s.Find(".reputation-score") //репутация
-			println(nameOwner.Text())
-			println(reputationOwner.Text())
+			toWrite += fmt.Sprintln(nameOwner.Text())
+			toWrite += fmt.Sprintln(reputationOwner.Text())
 		})
 
 		doc.Find(".answer").Each(func(i int, s *goquery.Selection) {
@@ -152,48 +156,50 @@ func runParser(wr http.ResponseWriter, req *http.Request) { //сделать с�
 			nameAnswer := s.Find(".answercell").Find(".post-signature").Find(".user-details").Find("a")                       //имя отвечающего
 			reputationAnswer := s.Find(".answercell").Find(".post-signature").Find(".user-details").Find(".reputation-score") //его репутация
 
-			println(idAnswer)
-			println(likesAnswer.Text())
-			println(bodyAnswer.Text())
-			println(nameAnswer.Text())
-			println(reputationAnswer.Text())
+			toWrite += fmt.Sprintln(idAnswer)
+			toWrite += fmt.Sprintln(likesAnswer.Text())
+			toWrite += fmt.Sprintln(bodyAnswer.Text())
+			toWrite += fmt.Sprintln(nameAnswer.Text())
+			toWrite += fmt.Sprintln(reputationAnswer.Text())
 
 		})
 
-		return http.StatusOK
+		return workers.Result{toWrite, http.StatusOK}
 
 	}
 
-	status, err := pool.AddTaskSyncTimed(handler, time.Second)
+	result, err := pool.AddTaskSyncTimed(handler, time.Second)
 	if err != nil {
 		log.Println(err)
 	}
-	wr.WriteHeader(status)
+	wr.WriteHeader(result.Code)
+	wr.Write([]byte(result.Response))
 
 }
 
 func editTopic(wr http.ResponseWriter, req *http.Request) {
 	log.Printf("Message /topic/ received:\n")
 
-	handler := func() int {
+	handler := func() workers.Result {
 		body, err := ioutil.ReadAll(req.Body)
 		defer req.Body.Close()
 		log.Printf("Message received:\n%s\n", body)
 
 		if err != nil {
 			log.Println(err)
-			return http.StatusInternalServerError
+			return workers.Result{"", http.StatusInternalServerError}
 		}
 
 		topic = string(body)
-		return http.StatusOK
+		return workers.Result{"", http.StatusOK}
 	}
 
-	status, err := pool.AddTaskSyncTimed(handler, time.Second)
+	result, err := pool.AddTaskSyncTimed(handler, time.Second)
 	if err != nil {
 		log.Println(err)
 	}
-	wr.WriteHeader(status)
+	wr.WriteHeader(result.Code)
+	wr.Write([]byte(result.Response))
 
 }
 
@@ -201,26 +207,27 @@ func editWordsDelete(wr http.ResponseWriter, req *http.Request) {
 
 	fmt.Printf("Message /words.delete/ received\n")
 
-	handler := func() int {
+	handler := func() workers.Result {
 		body, err := ioutil.ReadAll(req.Body)
 		req.Body.Close()
 		log.Printf("Message received:\n%s\n", body)
 
 		if err != nil {
 			log.Println(err)
-			return http.StatusInternalServerError
+			return workers.Result{"", http.StatusInternalServerError}
 		}
 
 		words := strings.Split(string(body), " ")
 		delWords(reference, words)
-		return http.StatusOK
+		return workers.Result{"", http.StatusOK}
 	}
 
-	status, err := pool.AddTaskSyncTimed(handler, time.Second)
+	result, err := pool.AddTaskSyncTimed(handler, time.Second)
 	if err != nil {
 		log.Println(err)
 	}
-	wr.WriteHeader(status)
+	wr.WriteHeader(result.Code)
+	wr.Write([]byte(result.Response))
 
 }
 
@@ -230,7 +237,7 @@ func editWordsAdd(wr http.ResponseWriter, req *http.Request) {
 	// req.Body.Close()
 	log.Printf("Message /words.add/ received\n")
 
-	handler := func() int {
+	handler := func() workers.Result {
 
 		body, err := ioutil.ReadAll(req.Body)
 		// head := req.Header
@@ -239,7 +246,7 @@ func editWordsAdd(wr http.ResponseWriter, req *http.Request) {
 
 		if err != nil {
 			log.Println(err)
-			return http.StatusInternalServerError
+			return workers.Result{"", http.StatusInternalServerError}
 		}
 
 		words := strings.Split(string(body), " ")
@@ -252,15 +259,16 @@ func editWordsAdd(wr http.ResponseWriter, req *http.Request) {
 		// 	}
 		// 	fmt.Printf("\n\n")
 		// }
-		return http.StatusOK
+		return workers.Result{"", http.StatusOK}
 
 	}
 
-	status, err := pool.AddTaskSyncTimed(handler, time.Second)
+	result, err := pool.AddTaskSyncTimed(handler, time.Second)
 	if err != nil {
 		log.Println(err)
 	}
-	wr.WriteHeader(status)
+	wr.WriteHeader(result.Code)
+	wr.Write([]byte(result.Response))
 
 }
 

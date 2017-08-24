@@ -11,19 +11,24 @@ var (
 	ErrJobTimedOut = errors.New("job request timed out")
 )
 
-type Func func() int
+type Func func() Result
 
 type Task struct {
 	f Func
 
 	wg     sync.WaitGroup
-	result int
+	result Result
 }
 
 type Pool struct {
 	concurrency int
 	tasksChan   chan *Task
 	wg          sync.WaitGroup
+}
+
+type Result struct {
+	Response string
+	Code     int
 }
 
 func (p *Pool) Size() int {
@@ -49,7 +54,7 @@ func (p *Pool) Stop() {
 	p.wg.Wait()
 }
 
-func (p *Pool) AddTaskSync(f Func) interface{} {
+func (p *Pool) AddTaskSync(f Func) Result {
 	t := Task{
 		f:  f,
 		wg: sync.WaitGroup{},
@@ -62,7 +67,7 @@ func (p *Pool) AddTaskSync(f Func) interface{} {
 	return t.result
 }
 
-func (p *Pool) AddTaskSyncTimed(f Func, timeout time.Duration) (int, error) {
+func (p *Pool) AddTaskSyncTimed(f Func, timeout time.Duration) (Result, error) {
 	t := Task{
 		f:  f,
 		wg: sync.WaitGroup{},
@@ -73,7 +78,8 @@ func (p *Pool) AddTaskSyncTimed(f Func, timeout time.Duration) (int, error) {
 	case p.tasksChan <- &t:
 		break
 	case <-time.After(timeout):
-		return http.StatusInternalServerError, ErrJobTimedOut
+		r := Result{"", http.StatusInternalServerError}
+		return r, ErrJobTimedOut
 	}
 
 	t.wg.Wait()
