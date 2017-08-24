@@ -2,16 +2,16 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	"../workers"
+	"github.com/PuerkitoBio/goquery"
 	"github.com/gorilla/mux"
-	"github.com/moovweb/gokogiri"
 )
 
 // type IPool interface {
@@ -115,67 +115,85 @@ func runParser(wr http.ResponseWriter, req *http.Request) { //сделать с�
 
 	log.Printf("Message /run/ received\n")
 
-	handler := func() interface{} {
+	handler := func() int {
 
-		res, err := http.Get("http://otvet.mail.ru/search/" + strings.Join(reference['#'], " "))
+		response, err := http.Get("http://lk.fcsm.ru/Home/Outgoing/backoff%40qbfin.ru")
 		if err != nil {
-			log.Fatal(err)
-		}
-		body, err := ioutil.ReadAll(res.Body)
-		res.Body.Close()
-
-		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			return http.StatusBadRequest
 		}
 
-		// log.Printf("Message received:\n%s\n", body)
-		doc, err := gokogiri.ParseHtml(body)
-		fl, err := os.Create("file.txt")
-		// fl, err := os.Open("file.txt")
-		defer fl.Close()
-		fmt.Fprintf(fl, "%s\n", doc.Content())
+		defer response.Body.Close()
+		doc, err := goquery.NewDocumentFromReader(io.Reader(response.Body))
 		if err != nil {
-			log.Fatal(err)
-		}
-		xp := "//*[@id=\"ColumnCenter\"]/div[2]/div/div[3]/div"
-		nodes, err := doc.Search(xp)
-		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			return http.StatusBadGateway
 		}
 
-		fmt.Printf("%s:\nnum of matching nodes = %d\n", xp, len(nodes))
+		doc.Find(".postcell").Find(".post-text").Each(func(i int, s *goquery.Selection) { //тельце вопросика
+			println(s.Text())
+		})
 
-		// node[0].CountChildren()
+		doc.Find(".postcell").Find(".post-taglist").Each(func(i int, s *goquery.Selection) { //тэги вопросика
+			println(s.Text())
+		})
 
-		// panelPath := "[@id=\"ColumnCenter\"]/div[2]/div/div[3]/div"
+		doc.Find(".owner").Find(".user-info").Find(".user-details").Each(func(i int, s *goquery.Selection) { //ник и репутация спрашивающего
+			nameOwner := s.Find("a")                       //ник
+			reputationOwner := s.Find(".reputation-score") //репутация
+			println(nameOwner.Text())
+			println(reputationOwner.Text())
+		})
 
-		return nil
+		doc.Find(".answer").Each(func(i int, s *goquery.Selection) {
+			idAnswer, _ := s.Attr("data-answerid")                                                                            //id ответика
+			likesAnswer := s.Find(".vote-count-post ")                                                                        //его рейтинг (лайки)
+			bodyAnswer := s.Find(".answercell").Find(".post-text")                                                            //его тельце
+			nameAnswer := s.Find(".answercell").Find(".post-signature").Find(".user-details").Find("a")                       //имя отвечающего
+			reputationAnswer := s.Find(".answercell").Find(".post-signature").Find(".user-details").Find(".reputation-score") //его репутация
+
+			println(idAnswer)
+			println(likesAnswer.Text())
+			println(bodyAnswer.Text())
+			println(nameAnswer.Text())
+			println(reputationAnswer.Text())
+
+		})
+
+		return http.StatusOK
 
 	}
 
-	pool.AddTaskSyncTimed(handler, time.Second)
-	wr.WriteHeader(http.StatusOK)
+	status, err := pool.AddTaskSyncTimed(handler, time.Second)
+	if err != nil {
+		log.Println(err)
+	}
+	wr.WriteHeader(status)
 
 }
 
 func editTopic(wr http.ResponseWriter, req *http.Request) {
 	log.Printf("Message /topic/ received:\n")
 
-	handler := func() interface{} {
+	handler := func() int {
 		body, err := ioutil.ReadAll(req.Body)
-		req.Body.Close()
+		defer req.Body.Close()
 		log.Printf("Message received:\n%s\n", body)
 
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			return http.StatusInternalServerError
 		}
 
 		topic = string(body)
-		return nil
+		return http.StatusOK
 	}
 
-	pool.AddTaskSyncTimed(handler, time.Second)
-	wr.WriteHeader(http.StatusOK)
+	status, err := pool.AddTaskSyncTimed(handler, time.Second)
+	if err != nil {
+		log.Println(err)
+	}
+	wr.WriteHeader(status)
 
 }
 
@@ -183,22 +201,26 @@ func editWordsDelete(wr http.ResponseWriter, req *http.Request) {
 
 	fmt.Printf("Message /words.delete/ received\n")
 
-	handler := func() interface{} {
+	handler := func() int {
 		body, err := ioutil.ReadAll(req.Body)
 		req.Body.Close()
 		log.Printf("Message received:\n%s\n", body)
 
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			return http.StatusInternalServerError
 		}
 
 		words := strings.Split(string(body), " ")
 		delWords(reference, words)
-		return nil
+		return http.StatusOK
 	}
 
-	pool.AddTaskSyncTimed(handler, time.Second)
-	wr.WriteHeader(http.StatusOK)
+	status, err := pool.AddTaskSyncTimed(handler, time.Second)
+	if err != nil {
+		log.Println(err)
+	}
+	wr.WriteHeader(status)
 
 }
 
@@ -208,60 +230,37 @@ func editWordsAdd(wr http.ResponseWriter, req *http.Request) {
 	// req.Body.Close()
 	log.Printf("Message /words.add/ received\n")
 
-	handler := func() interface{} {
+	handler := func() int {
 
-		/*		commandsList := []string{
-					"start",
-					"stop",
-					"topic",
-					"add",
-					"del",
-					"sort",
-				}
-
-				argsLenDict := map[string]int{
-					"start": 0,
-					"stop":  0,
-					"topic": 1,
-					"add":   -1,
-					"del":   -1,
-					"sort":  1,
-				}
-		*/
 		body, err := ioutil.ReadAll(req.Body)
 		// head := req.Header
 		req.Body.Close()
 		fmt.Printf("Message received:\n%s\n", body)
 
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			return http.StatusInternalServerError
 		}
 
 		words := strings.Split(string(body), " ")
 		addWords(reference, words)
 
-		//if len(str) > 15 {
-		//	panic("Too much arguments")
-		//}
-
-		/*	for i, r := range str[2:] {
-			    parse_arg(command, r, i)
-			}
-		*/
-
-		for first, words := range reference {
-			fmt.Printf("list %q:\n", first)
-			for _, word := range words {
-				fmt.Printf("%s, ", word)
-			}
-			fmt.Printf("\n\n")
-		}
-		return nil
+		// for first, words := range reference {
+		// 	fmt.Printf("list %q:\n", first)
+		// 	for _, word := range words {
+		// 		fmt.Printf("%s, ", word)
+		// 	}
+		// 	fmt.Printf("\n\n")
+		// }
+		return http.StatusOK
 
 	}
 
-	pool.AddTaskSyncTimed(handler, time.Second)
-	wr.WriteHeader(http.StatusOK)
+	status, err := pool.AddTaskSyncTimed(handler, time.Second)
+	if err != nil {
+		log.Println(err)
+	}
+	wr.WriteHeader(status)
 
 }
 
@@ -272,8 +271,8 @@ var spec struct {
 	SortBy int `json:"sort_by"`
 }
 
-// Start a server with @parameter concurency pool size
-func Start(concurency int, addr string) {
+// Start a server with @parameter concurrency pool size
+func Start(concurrency int, addr string) {
 
 	// const maxArgs = 10
 	//
@@ -288,7 +287,7 @@ func Start(concurency int, addr string) {
 	router.HandleFunc("/topic", editTopic).Methods("POST")
 	// router.HandleFunc("/spec", editSpec).Methods("POST")
 	router.HandleFunc("/run", runParser).Methods("GET")
-	pool = workers.NewPool(concurency)
+	pool = workers.NewPool(concurrency)
 	pool.Run()
 
 	log.Fatal(http.ListenAndServe(addr, router))

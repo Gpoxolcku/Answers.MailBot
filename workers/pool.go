@@ -2,6 +2,7 @@ package workers
 
 import (
 	"errors"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -10,13 +11,13 @@ var (
 	ErrJobTimedOut = errors.New("job request timed out")
 )
 
-type Func func() interface{}
+type Func func() int
 
 type Task struct {
 	f Func
 
 	wg     sync.WaitGroup
-	result interface{}
+	result int
 }
 
 type Pool struct {
@@ -61,7 +62,7 @@ func (p *Pool) AddTaskSync(f Func) interface{} {
 	return t.result
 }
 
-func (p *Pool) AddTaskSyncTimed(f Func, timeout time.Duration) (interface{}, error) {
+func (p *Pool) AddTaskSyncTimed(f Func, timeout time.Duration) (int, error) {
 	t := Task{
 		f:  f,
 		wg: sync.WaitGroup{},
@@ -72,7 +73,7 @@ func (p *Pool) AddTaskSyncTimed(f Func, timeout time.Duration) (interface{}, err
 	case p.tasksChan <- &t:
 		break
 	case <-time.After(timeout):
-		return nil, ErrJobTimedOut
+		return http.StatusInternalServerError, ErrJobTimedOut
 	}
 
 	t.wg.Wait()
