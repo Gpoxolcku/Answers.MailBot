@@ -26,9 +26,28 @@ type Pool struct {
 	wg          sync.WaitGroup
 }
 
+type Question struct {
+	Link            string   `yaml:",omitempty"`
+	Title           string   `yaml:",omitempty"`
+	Text            string   `yaml:",omitempty"`
+	NameOwner       string   `yaml:"name_owner,omitempty"`
+	Tags            []string `yaml:",omitempty"`
+	ReputationOwner *int     `yaml:"reputation_owner,omitempty"`
+}
+
+type Answer struct {
+	BodyAnswer       string `yaml:"body_answer,omitempty"`
+	NameAnswer       string `yaml:"name_answer,omitempty"`
+	IDAnswer         *int   `yaml:"id_answer,omitempty"`
+	LikesAnswer      *int   `yaml:"likes_answer,omitempty"`
+	ReputationAnswer *int   `yaml:"reputation_answer,omitempty"`
+}
+
 type Result struct {
-	Response string
-	Code     int
+	Question     `yaml:",inline"`
+	Answer       `yaml:",inline"`
+	Code         int        `yaml:",omitempty"`
+	QuestionList []Question `yaml:",omitempty"`
 }
 
 func (p *Pool) Size() int {
@@ -78,7 +97,8 @@ func (p *Pool) AddTaskSyncTimed(f Func, timeout time.Duration) (Result, error) {
 	case p.tasksChan <- &t:
 		break
 	case <-time.After(timeout):
-		r := Result{"", http.StatusInternalServerError}
+		r := Result{}
+		r.Code = http.StatusInternalServerError
 		return r, ErrJobTimedOut
 	}
 

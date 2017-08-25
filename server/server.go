@@ -6,12 +6,14 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"../workers"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/gorilla/mux"
+	"gopkg.in/yaml.v2"
 )
 
 // type IPool interface {
@@ -111,69 +113,134 @@ func delWords(reference map[rune][]string, words []string) {
 	}
 }
 
-func runParser(wr http.ResponseWriter, req *http.Request) { //сделать структуру: заголовок, первое предложение из статьи, ссылка
-
-	log.Printf("Message /run/ received\n")
-
+func runParser(wr http.ResponseWriter, req *http.Request) {
 	handler := func() workers.Result {
 
+		response := workers.Result{}
+
 		spec := strings.Join(reference['#'], "+")
-		response, err := http.Get("https://stackoverflow.com/search?q=" + spec)
+		gwResp, err := http.Get("https://stackoverflow.com/search?q=" + spec)
+		// gwResp, err := http.Get("https://stackoverflow.com/questions/24147059/how-do-i-format-a-string-into-edittext-in-android-with-aaa-aaa-aaa-format")
 		if err != nil {
 			log.Println(err)
-
-			return workers.Result{"", http.StatusInternalServerError}
+			response.Code = http.StatusInternalServerError
+			return response
 		}
 
-		defer response.Body.Close()
-		doc, err := goquery.NewDocumentFromReader(io.Reader(response.Body))
+		defer gwResp.Body.Close()
+		doc, err := goquery.NewDocumentFromReader(io.Reader(gwResp.Body))
 		if err != nil {
 			log.Println(err)
-			return workers.Result{"", http.StatusBadGateway}
+			response.Code = http.StatusBadGateway
+			return response
 		}
 
-		toWrite := ""
-		doc.Find(".postcell").Find(".post-text").Each(func(i int, s *goquery.Selection) { //тельце вопросика
-			// println(s.Text())
-			toWrite += fmt.Sprintln(s.Text())
-		})
-
-		doc.Find(".postcell").Find(".post-taglist").Each(func(i int, s *goquery.Selection) { //тэги вопросика
-			toWrite += fmt.Sprintln(s.Text())
-		})
-
-		doc.Find(".owner").Find(".user-info").Find(".user-details").Each(func(i int, s *goquery.Selection) { //ник и репутация спрашивающего
-			nameOwner := s.Find("a")                       //ник
-			reputationOwner := s.Find(".reputation-score") //репутация
-			toWrite += fmt.Sprintln(nameOwner.Text())
-			toWrite += fmt.Sprintln(reputationOwner.Text())
-		})
-
-		doc.Find(".answer").Each(func(i int, s *goquery.Selection) {
-			idAnswer, _ := s.Attr("data-answerid")                                                                            //id ответика
-			likesAnswer := s.Find(".vote-count-post ")                                                                        //его рейтинг (лайки)
-			bodyAnswer := s.Find(".answercell").Find(".post-text")                                                            //его тельце
-			nameAnswer := s.Find(".answercell").Find(".post-signature").Find(".user-details").Find("a")                       //имя отвечающего
-			reputationAnswer := s.Find(".answercell").Find(".post-signature").Find(".user-details").Find(".reputation-score") //его репутация
-
-			toWrite += fmt.Sprintln(idAnswer)
-			toWrite += fmt.Sprintln(likesAnswer.Text())
-			toWrite += fmt.Sprintln(bodyAnswer.Text())
-			toWrite += fmt.Sprintln(nameAnswer.Text())
-			toWrite += fmt.Sprintln(reputationAnswer.Text())
+		doc.Find(".container").Find(".content").Find(".mainbar").
+			Find(".question-summary search-result").Each(func(i int, s *goquery.Selection) { //тельце вопросика
+			q := workers.Question{}
+			q.Title, _ = s.Find(".summary").Find(".result-link").Attr("title")
+			q.Link, _ = s.Find(".summary").Find(".result-link").Attr("href")
+			// q.Tit
+			response.QuestionList = append(response.QuestionList, q)
+			println(s.Text())
 
 		})
 
-		return workers.Result{toWrite, http.StatusOK}
+		response.Code = http.StatusOK
 
+		return response
 	}
 
-	result, err := pool.AddTaskSyncTimed(handler, time.Second)
+	result, err := pool.AddTaskSyncTimed(handler, time.Second*5)
 	if err != nil {
 		log.Println(err)
 	}
+	out, err := yaml.Marshal(result)
+	// out, err := yaml.Marshal("a\\nb\\nc")
+	if err != nil {
+		wr.WriteHeader(http.StatusInternalServerError)
+	}
 	wr.WriteHeader(result.Code)
-	wr.Write([]byte(result.Response))
+	wr.Write(out)
+
+}
+
+func parseQuestion(wr http.ResponseWriter, req *http.Request) { //сделать структуру: заголовок, первое предложение из статьи, ссылка
+
+	log.Printf("Message /run/question received\n")
+
+	handler := func() workers.Result {
+
+		response := workers.Result{}
+
+		// spec := strings.Join(reference['#'], "+")
+		// response, err := http.Get("https://stackoverflow.com/search?q=" + spec)
+		gwResp, err := http.Get("https://stackoverflow.com/questions/24147059/how-do-i-format-a-string-into-edittext-in-android-with-aaa-aaa-aaa-format")
+		if err != nil {
+			log.Println(err)
+			response.Code = http.StatusInternalServerError
+			return response
+		}
+
+		defer gwResp.Body.Close()
+		doc, err := goquery.NewDocumentFromReader(io.Reader(gwResp.Body))
+		if err != nil {
+			log.Println(err)
+			response.Code = http.StatusBadGateway
+			return response
+		}
+
+		doc.Find(".postcell").Find(".post-text").Each(func(i int, s *goquery.Selection) { //тельце вопросика
+			response.Text = strings.Join(strings.Split(s.Text(), "\\n"), "\n")
+			println(s.Text())
+			println(response.Text)
+
+		})
+
+		// doc.Find(".postcell").Find(".post-taglist").Each(func(i int, s *goquery.Selection) { //тэги вопросика
+		// 	response.Tags = strings.Split(s.Text(), " ")
+		// 	fmt.Print(s.Text())
+		//
+		// })
+
+		doc.Find(".owner").Find(".user-info").Find(".user-details").Each(func(i int, s *goquery.Selection) { //ник и репутация спрашивающего
+			response.NameOwner = s.Find("a").Text() //ник
+			txt := strings.Join(strings.Split(s.Find(".reputation-score").Text(), ","), "")
+			// fmt.Println("txt == " + txt)
+			// *(response.ReputationOwner) = 10
+			response.ReputationOwner = new(int)
+			*(response.ReputationOwner), _ = strconv.Atoi(txt) //репутация
+
+		})
+		doc.Find(".answer").Each(func(i int, s *goquery.Selection) {
+			attr, _ := s.Attr("data-answerid")
+			response.IDAnswer = new(int)
+			response.LikesAnswer = new(int)
+			response.ReputationAnswer = new(int)
+			*(response.IDAnswer), _ = strconv.Atoi(attr)                                                                                                         //id ответика
+			*(response.LikesAnswer), _ = strconv.Atoi(s.Find(".vote-count-post ").Text())                                                                        //его рейтинг (лайки)
+			*(response.ReputationAnswer), _ = strconv.Atoi(s.Find(".answercell").Find(".post-signature").Find(".user-details").Find(".reputation-score").Text()) //его репутация
+			response.BodyAnswer = s.Find(".answercell").Find(".post-text").Text()                                                                                //его тельце
+			response.NameAnswer = s.Find(".answercell").Find(".post-signature").Find(".user-details").Find("a").Text()                                           //имя отвечающего
+
+		})
+
+		response.Code = http.StatusOK
+		return response
+
+	}
+
+	result, err := pool.AddTaskSyncTimed(handler, time.Second*5)
+	if err != nil {
+		log.Println(err)
+	}
+	out, err := yaml.Marshal(result)
+	// out, err := yaml.Marshal("a\\nb\\nc")
+	if err != nil {
+		wr.WriteHeader(http.StatusInternalServerError)
+	}
+	wr.WriteHeader(result.Code)
+	wr.Write(out)
 
 }
 
@@ -181,17 +248,21 @@ func editTopic(wr http.ResponseWriter, req *http.Request) {
 	log.Printf("Message /topic/ received:\n")
 
 	handler := func() workers.Result {
+
+		response := workers.Result{}
 		body, err := ioutil.ReadAll(req.Body)
-		defer req.Body.Close()
-		log.Printf("Message received:\n%s\n", body)
 
 		if err != nil {
 			log.Println(err)
-			return workers.Result{"", http.StatusInternalServerError}
+			response.Code = http.StatusInternalServerError
+			return response
 		}
+		defer req.Body.Close()
+		log.Printf("Message received:\n%s\n", body)
 
 		topic = string(body)
-		return workers.Result{"", http.StatusOK}
+		response.Code = http.StatusOK
+		return response
 	}
 
 	result, err := pool.AddTaskSyncTimed(handler, time.Second)
@@ -199,7 +270,7 @@ func editTopic(wr http.ResponseWriter, req *http.Request) {
 		log.Println(err)
 	}
 	wr.WriteHeader(result.Code)
-	wr.Write([]byte(result.Response))
+	// wr.Write([]byte(result.Response))
 
 }
 
@@ -208,18 +279,21 @@ func editWordsDelete(wr http.ResponseWriter, req *http.Request) {
 	fmt.Printf("Message /words.delete/ received\n")
 
 	handler := func() workers.Result {
+		response := workers.Result{}
 		body, err := ioutil.ReadAll(req.Body)
 		req.Body.Close()
 		log.Printf("Message received:\n%s\n", body)
 
 		if err != nil {
 			log.Println(err)
-			return workers.Result{"", http.StatusInternalServerError}
+			response.Code = http.StatusInternalServerError
+			return response
 		}
 
 		words := strings.Split(string(body), " ")
 		delWords(reference, words)
-		return workers.Result{"", http.StatusOK}
+		response.Code = http.StatusOK
+		return response
 	}
 
 	result, err := pool.AddTaskSyncTimed(handler, time.Second)
@@ -227,7 +301,7 @@ func editWordsDelete(wr http.ResponseWriter, req *http.Request) {
 		log.Println(err)
 	}
 	wr.WriteHeader(result.Code)
-	wr.Write([]byte(result.Response))
+	// wr.Write([]byte(result.Response))
 
 }
 
@@ -239,6 +313,7 @@ func editWordsAdd(wr http.ResponseWriter, req *http.Request) {
 
 	handler := func() workers.Result {
 
+		response := workers.Result{}
 		body, err := ioutil.ReadAll(req.Body)
 		// head := req.Header
 		req.Body.Close()
@@ -246,7 +321,8 @@ func editWordsAdd(wr http.ResponseWriter, req *http.Request) {
 
 		if err != nil {
 			log.Println(err)
-			return workers.Result{"", http.StatusInternalServerError}
+			response.Code = http.StatusInternalServerError
+			return response
 		}
 
 		words := strings.Split(string(body), " ")
@@ -259,7 +335,8 @@ func editWordsAdd(wr http.ResponseWriter, req *http.Request) {
 		// 	}
 		// 	fmt.Printf("\n\n")
 		// }
-		return workers.Result{"", http.StatusOK}
+		response.Code = http.StatusOK
+		return response
 
 	}
 
@@ -268,7 +345,7 @@ func editWordsAdd(wr http.ResponseWriter, req *http.Request) {
 		log.Println(err)
 	}
 	wr.WriteHeader(result.Code)
-	wr.Write([]byte(result.Response))
+	// wr.Write([]byte(result.Response))
 
 }
 
